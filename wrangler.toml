@@ -7,6 +7,11 @@ routes = [
   { pattern = "bot.micyou.top/*", zone_name = "micyou.top" }
 ]
 
+# KV namespace 用于存储 changelog
+[[kv_namespaces]]
+binding = "CHANGELOG_KV"
+id = "30db7c2bf6994d00888c5e4a17007c80"  # 部署时需要替换为实际的 KV namespace ID
+
 # 环境变量配置（敏感信息通过 wrangler secret 设置）
 # 使用命令设置密钥：
 # wrangler secret put TG_BOT_TOKEN

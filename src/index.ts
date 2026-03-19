@@ -16,6 +16,28 @@ interface Env {
   GITHUB_TOKEN?: string; // GitHub Personal Access Token（可选，用于提高 API 限制）
   ADMIN_USER_IDS?: string; // 管理员用户 ID 列表，逗号分隔
   ENVIRONMENT?: string;
+  CHANGELOG_KV: KVNamespace; // KV namespace 用于存储 changelog
+}
+
+// Changelog 存储类型定义
+interface ChangelogEntry {
+  id: number;
+  tag_name: string;
+  name: string | null;
+  body: string | null;
+  html_url: string;
+  published_at: string;
+  author: {
+    login: string;
+    html_url: string;
+  };
+  prerelease: boolean;
+}
+
+// KV 存储的数据结构
+interface ChangelogData {
+  entries: ChangelogEntry[];
+  lastUpdated: string;
 }
 
 // Telegram Update 类型定义
@@ -366,6 +388,216 @@ async function fetchAllReleases(owner: string, repo: string, token?: string): Pr
   return releases
     .filter(r => !r.draft)
     .sort((a, b) => new Date(a.published_at).getTime() - new Date(b.published_at).getTime());
+}
+
+// KV 存储的 key
+const CHANGELOG_KV_KEY = 'changelog_data';
+
+/**
+ * 从 KV 获取 changelog 数据
+ */
+async function getChangelogFromKV(kv: KVNamespace): Promise<ChangelogData | null> {
+  try {
+    const data = await kv.get(CHANGELOG_KV_KEY, 'json');
+    return data as ChangelogData | null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 保存 changelog 数据到 KV
+ */
+async function saveChangelogToKV(kv: KVNamespace, data: ChangelogData): Promise<void> {
+  await kv.put(CHANGELOG_KV_KEY, JSON.stringify(data));
+}
+
+/**
+ * 初始化 changelog - 从 GitHub 获取所有 releases 并存储到 KV
+ */
+async function initializeChangelog(env: Env): Promise<ChangelogData> {
+  const releases = await fetchAllReleases(GITHUB_OWNER, GITHUB_REPO, env.GITHUB_TOKEN);
+
+  const entries: ChangelogEntry[] = releases.map(release => ({
+    id: release.id,
+    tag_name: release.tag_name,
+    name: release.name,
+    body: release.body,
+    html_url: release.html_url,
+    published_at: release.published_at,
+    author: release.author,
+    prerelease: release.prerelease,
+  }));
+
+  // 按发布时间降序排列（最新的在前）
+  entries.sort((a, b) => new Date(b.published_at).getTime() - new Date(a.published_at).getTime());
+
+  const data: ChangelogData = {
+    entries,
+    lastUpdated: new Date().toISOString(),
+  };
+
+  await saveChangelogToKV(env.CHANGELOG_KV, data);
+  return data;
+}
+
+/**
+ * 增量添加新 release 到 changelog（添加到最顶部）
+ */
+async function addReleaseToChangelog(env: Env, release: GitHubApiRelease | GitHubReleasePayload['release']): Promise<ChangelogData> {
+  let data = await getChangelogFromKV(env.CHANGELOG_KV);
+
+  if (!data) {
+    // 如果 KV 中没有数据，初始化整个 changelog
+    return await initializeChangelog(env);
+  }
+
+  // 检查是否已存在该 release
+  if (data.entries.some(e => e.id === release.id)) {
+    return data;
+  }
+
+  // 创建新的 entry
+  const newEntry: ChangelogEntry = {
+    id: release.id,
+    tag_name: release.tag_name,
+    name: release.name,
+    body: release.body,
+    html_url: release.html_url,
+    published_at: release.published_at,
+    author: release.author,
+    prerelease: release.prerelease,
+  };
+
+  // 添加到最顶部
+  data.entries.unshift(newEntry);
+  data.lastUpdated = new Date().toISOString();
+
+  await saveChangelogToKV(env.CHANGELOG_KV, data);
+  return data;
+}
+
+/**
+ * 生成 CHANGELOG.md 格式的 Markdown 内容
+ */
+function generateChangelogMarkdown(data: ChangelogData, repoFullName: string): string {
+  const lines: string[] = [
+    `# Changelog`,
+    ``,
+    `> Repository: [${repoFullName}](https://github.com/${repoFullName})`,
+    `> Last updated: ${formatDate(data.lastUpdated)}`,
+    ``,
+    `---`,
+    ``,
+  ];
+
+  for (const entry of data.entries) {
+    const releaseName = entry.name || entry.tag_name;
+    const releaseDate = formatDate(entry.published_at);
+    const releaseUrl = entry.html_url;
+
+    lines.push(`## [${entry.tag_name}](${releaseUrl})`);
+    lines.push(``);
+    lines.push(`**${releaseName}** - ${releaseDate}`);
+    if (entry.prerelease) {
+      lines.push(` *(Pre-release)*`);
+    }
+    lines.push(``);
+    lines.push(`**Author:** [${entry.author.login}](${entry.author.html_url})`);
+    lines.push(``);
+
+    if (entry.body) {
+      lines.push(entry.body);
+    } else {
+      lines.push(`*No release notes provided.*`);
+    }
+
+    lines.push(``);
+    lines.push(`---`);
+    lines.push(``);
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * 处理 /changelog 请求 - 获取 changelog（JSON 格式）
+ */
+async function handleChangelogRequest(env: Env): Promise<Response> {
+  let data = await getChangelogFromKV(env.CHANGELOG_KV);
+
+  if (!data) {
+    // 第一次访问，从 GitHub 获取所有 releases
+    data = await initializeChangelog(env);
+  }
+
+  return new Response(JSON.stringify({
+    success: true,
+    repository: `${GITHUB_OWNER}/${GITHUB_REPO}`,
+    data
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+/**
+ * 处理 /changelog.md 请求 - 获取 CHANGELOG.md 格式
+ */
+async function handleChangelogMdRequest(env: Env): Promise<Response> {
+  let data = await getChangelogFromKV(env.CHANGELOG_KV);
+
+  if (!data) {
+    // 第一次访问，从 GitHub 获取所有 releases
+    data = await initializeChangelog(env);
+  }
+
+  const markdown = generateChangelogMarkdown(data, `${GITHUB_OWNER}/${GITHUB_REPO}`);
+
+  return new Response(markdown, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/markdown; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="CHANGELOG.md"',
+    },
+  });
+}
+
+/**
+ * 处理 /changelog/refresh 请求 - 强制刷新 changelog
+ */
+async function handleChangelogRefresh(env: Env, secret?: string): Promise<Response> {
+  // 验证密钥
+  if (!secret || secret !== env.GITHUB_WEBHOOK_SECRET) {
+    return new Response(JSON.stringify({
+      error: 'Unauthorized',
+      message: 'Admin secret required. Usage: /changelog/refresh?secret=YOUR_SECRET'
+    }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    const data = await initializeChangelog(env);
+    return new Response(JSON.stringify({
+      success: true,
+      message: 'Changelog refreshed successfully',
+      count: data.entries.length,
+      lastUpdated: data.lastUpdated
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (error) {
+    return new Response(JSON.stringify({
+      error: 'Failed to refresh changelog',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
 }
 
 /**
@@ -802,6 +1034,22 @@ export default {
       return handleSendAll(request, env);
     }
 
+    // 处理 /changelog 请求 - 获取 changelog（JSON 格式）
+    if (url.pathname === '/changelog') {
+      return handleChangelogRequest(env);
+    }
+
+    // 处理 /changelog.md 请求 - 获取 CHANGELOG.md 格式
+    if (url.pathname === '/changelog.md') {
+      return handleChangelogMdRequest(env);
+    }
+
+    // 处理 /changelog/refresh 请求 - 强制刷新 changelog
+    if (url.pathname === '/changelog/refresh') {
+      const secret = url.searchParams.get('secret') || undefined;
+      return handleChangelogRefresh(env, secret);
+    }
+
     // 只接受 POST 请求
     if (request.method !== 'POST') {
       return new Response(JSON.stringify({ error: 'Method not allowed' }), {
@@ -913,6 +1161,15 @@ export default {
 
       const result = await telegramResponse.json();
       console.log('Telegram message sent successfully:', result);
+
+      // 增量更新 changelog
+      try {
+        await addReleaseToChangelog(env, data.release);
+        console.log('Changelog updated successfully');
+      } catch (changelogError) {
+        console.error('Failed to update changelog:', changelogError);
+        // 不影响主流程，继续返回成功
+      }
 
       return new Response(JSON.stringify({ 
         success: true,
