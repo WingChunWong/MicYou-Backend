@@ -2,7 +2,16 @@
  * 管理后台处理器
  */
 
+import { Env } from '../types';
 import { GITHUB_OWNER, GITHUB_REPO } from '../config';
+import { getChangelogFromKV } from '../changelog/kv';
+
+/**
+ * 验证登录密码
+ */
+function verifyPassword(password: string, env: Env): boolean {
+  return env.ADMIN_PASSWORD ? password === env.ADMIN_PASSWORD : false;
+}
 
 /**
  * 生成管理后台 HTML
@@ -13,183 +22,501 @@ export function generateAdminHtml(): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GitHub Release Bot Admin</title>
+  <title>GitHub Release Bot - Admin</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      background: #f5f5f5;
+      min-height: 100vh;
+      color: #333;
+    }
+    .login-container {
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
+    }
+    .login-box {
+      background: #fff;
+      border-radius: 8px;
+      padding: 32px;
+      width: 360px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    .login-box h1 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 24px;
+      text-align: center;
+    }
+    .login-box input[type="password"] {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+      margin-bottom: 16px;
+    }
+    .login-box input[type="password"]:focus {
+      outline: none;
+      border-color: #1890ff;
+    }
+    .login-box button {
+      width: 100%;
+      padding: 12px;
+      background: #1890ff;
+      border: none;
+      border-radius: 4px;
       color: #fff;
+      font-size: 14px;
+      cursor: pointer;
     }
-    .container {
-      background: rgba(255,255,255,0.05);
-      backdrop-filter: blur(10px);
-      border-radius: 16px;
-      padding: 40px;
-      max-width: 500px;
-      width: 90%;
-      border: 1px solid rgba(255,255,255,0.1);
+    .login-box button:hover {
+      background: #40a9ff;
     }
-    h1 {
-      font-size: 24px;
-      margin-bottom: 8px;
+    .login-error {
+      color: #f5222d;
+      font-size: 12px;
+      margin-bottom: 12px;
+      display: none;
+    }
+    
+    /* Dashboard */
+    .dashboard { display: none; }
+    .header {
+      background: #fff;
+      border-bottom: 1px solid #e8e8e8;
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header h1 {
+      font-size: 18px;
+      font-weight: 600;
+    }
+    .header-right {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 16px;
     }
-    .subtitle {
-      color: #888;
-      margin-bottom: 30px;
+    .repo-link {
+      color: #1890ff;
+      text-decoration: none;
       font-size: 14px;
     }
-    .info-card {
-      background: rgba(255,255,255,0.05);
-      border-radius: 12px;
-      padding: 20px;
-      margin-bottom: 20px;
+    .logout-btn {
+      padding: 6px 12px;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 13px;
+      cursor: pointer;
     }
+    .logout-btn:hover {
+      border-color: #1890ff;
+      color: #1890ff;
+    }
+    
+    .content {
+      padding: 24px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+    }
+    
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+    }
+    @media (max-width: 600px) {
+      .status-grid { grid-template-columns: 1fr; }
+    }
+    
+    .status-item {
+      padding: 16px;
+      background: #fafafa;
+      border-radius: 6px;
+      border-left: 3px solid #ddd;
+    }
+    .status-item.online { border-left-color: #52c41a; }
+    .status-item.offline { border-left-color: #f5222d; }
+    .status-item.pending { border-left-color: #faad14; }
+    
+    .status-label {
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 4px;
+    }
+    .status-value {
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .status-value.success { color: #52c41a; }
+    .status-value.error { color: #f5222d; }
+    .status-value.warning { color: #faad14; }
+    
+    .action-btn {
+      padding: 10px 20px;
+      background: #1890ff;
+      border: none;
+      border-radius: 4px;
+      color: #fff;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .action-btn:hover { background: #40a9ff; }
+    .action-btn:disabled {
+      background: #d9d9d9;
+      cursor: not-allowed;
+    }
+    .action-btn.danger {
+      background: #f5222d;
+    }
+    .action-btn.danger:hover {
+      background: #ff4d4f;
+    }
+    
+    .result-msg {
+      margin-top: 12px;
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 13px;
+      display: none;
+    }
+    .result-msg.success {
+      background: #f6ffed;
+      border: 1px solid #b7eb8f;
+      color: #52c41a;
+    }
+    .result-msg.error {
+      background: #fff2f0;
+      border: 1px solid #ffccc7;
+      color: #f5222d;
+    }
+    
     .info-row {
       display: flex;
       justify-content: space-between;
       padding: 8px 0;
-      border-bottom: 1px solid rgba(255,255,255,0.1);
+      border-bottom: 1px solid #f0f0f0;
     }
     .info-row:last-child { border-bottom: none; }
-    .label { color: #888; }
-    .value { color: #4fc3f7; }
-    .value a { color: #4fc3f7; text-decoration: none; }
-    .value a:hover { text-decoration: underline; }
-    .form-group { margin-bottom: 20px; }
-    label { display: block; margin-bottom: 8px; color: #888; font-size: 14px; }
-    input[type="password"] {
-      width: 100%;
-      padding: 12px 16px;
-      border: 1px solid rgba(255,255,255,0.2);
-      border-radius: 8px;
-      background: rgba(255,255,255,0.05);
-      color: #fff;
-      font-size: 14px;
-    }
-    input[type="password"]:focus {
-      outline: none;
-      border-color: #4fc3f7;
-    }
-    button {
-      width: 100%;
-      padding: 14px;
-      background: linear-gradient(135deg, #4fc3f7 0%, #2196f3 100%);
-      border: none;
-      border-radius: 8px;
-      color: #fff;
-      font-size: 16px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: transform 0.2s, box-shadow 0.2s;
-    }
-    button:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 20px rgba(79, 195, 247, 0.4);
-    }
-    button:disabled {
-      background: #555;
-      cursor: not-allowed;
-      transform: none;
-      box-shadow: none;
-    }
-    .result {
-      margin-top: 20px;
-      padding: 16px;
-      border-radius: 8px;
-      font-size: 14px;
-      display: none;
-    }
-    .result.success { background: rgba(76, 175, 80, 0.2); border: 1px solid #4caf50; }
-    .result.error { background: rgba(244, 67, 54, 0.2); border: 1px solid #f44336; }
-    .footer {
-      margin-top: 30px;
-      text-align: center;
-      color: #555;
-      font-size: 12px;
-    }
+    .info-label { color: #888; font-size: 13px; }
+    .info-value { font-size: 13px; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>GitHub Release Bot</h1>
-    <p class="subtitle">Admin Panel / 管理后台</p>
-
-    <div class="info-card">
-      <div class="info-row">
-        <span class="label">Repository / 仓库</span>
-        <span class="value"><a href="https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}" target="_blank">${GITHUB_OWNER}/${GITHUB_REPO}</a></span>
-      </div>
-      <div class="info-row">
-        <span class="label">Status / 状态</span>
-        <span class="value" style="color: #4caf50;">Online</span>
+  <!-- Login -->
+  <div class="login-container" id="loginPage">
+    <div class="login-box">
+      <h1>GitHub Release Bot</h1>
+      <div class="login-error" id="loginError">密码错误</div>
+      <input type="password" id="password" placeholder="请输入管理密码" onkeypress="if(event.key==='Enter')login()">
+      <button onclick="login()">登录</button>
+    </div>
+  </div>
+  
+  <!-- Dashboard -->
+  <div class="dashboard" id="dashboard">
+    <div class="header">
+      <h1>GitHub Release Bot</h1>
+      <div class="header-right">
+        <a class="repo-link" href="https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}" target="_blank">${GITHUB_OWNER}/${GITHUB_REPO}</a>
+        <button class="logout-btn" onclick="logout()">退出</button>
       </div>
     </div>
-
-    <div class="form-group">
-      <label for="secret">Admin Secret / 管理员密钥</label>
-      <input type="password" id="secret" placeholder="Enter your secret...">
-    </div>
-
-    <button id="sendAllBtn" onclick="sendAllReleases()">
-      Send All Releases / 发送所有发布
-    </button>
-
-    <div id="result" class="result"></div>
-
-    <div class="footer">
-      Powered by Cloudflare Workers
+    
+    <div class="content">
+      <!-- Status Cards -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">服务状态</span>
+          <button class="action-btn" onclick="refreshStatus()">刷新</button>
+        </div>
+        <div class="status-grid">
+          <div class="status-item online" id="webhookStatus">
+            <div class="status-label">GitHub Webhook</div>
+            <div class="status-value success" id="webhookValue">正常</div>
+          </div>
+          <div class="status-item" id="changelogStatus">
+            <div class="status-label">Changelog</div>
+            <div class="status-value" id="changelogValue">加载中...</div>
+          </div>
+          <div class="status-item online">
+            <div class="status-label">Bot 状态</div>
+            <div class="status-value success">在线</div>
+          </div>
+          <div class="status-item">
+            <div class="status-label">最后更新</div>
+            <div class="status-value" id="lastUpdate">-</div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Changelog Info -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Changelog 详情</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Release 数量</span>
+          <span class="info-value" id="releaseCount">-</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">最新版本</span>
+          <span class="info-value" id="latestVersion">-</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">数据更新时间</span>
+          <span class="info-value" id="dataUpdateTime">-</span>
+        </div>
+      </div>
+      
+      <!-- Actions -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">操作</span>
+        </div>
+        <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+          <button class="action-btn" id="sendAllBtn" onclick="sendAllReleases()">发送所有 Release</button>
+          <button class="action-btn" onclick="refreshChangelog()">刷新 Changelog</button>
+        </div>
+        <div class="result-msg" id="actionResult"></div>
+      </div>
     </div>
   </div>
 
   <script>
-    async function sendAllReleases() {
-      const secret = document.getElementById('secret').value;
-      const btn = document.getElementById('sendAllBtn');
-      const result = document.getElementById('result');
-
-      if (!secret) {
-        showResult('error', 'Please enter admin secret / 请输入管理员密钥');
-        return;
-      }
-
-      btn.disabled = true;
-      btn.textContent = 'Sending... / 发送中...';
-      result.style.display = 'none';
-
+    const tokenKey = 'admin_token';
+    
+    function getToken() {
+      return sessionStorage.getItem(tokenKey);
+    }
+    
+    function setToken(token) {
+      sessionStorage.setItem(tokenKey, token);
+    }
+    
+    function clearToken() {
+      sessionStorage.removeItem(tokenKey);
+    }
+    
+    async function login() {
+      const pwd = document.getElementById('password').value;
+      if (!pwd) return;
+      
       try {
-        const response = await fetch('/sendAll?secret=' + encodeURIComponent(secret), {
-          method: 'POST'
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pwd })
         });
-        const data = await response.json();
-
-        if (response.ok && data.success) {
-          showResult('success', 'Success! Sent ' + data.sentCount + '/' + data.totalCount + ' releases. / 成功！已发送 ' + data.sentCount + '/' + data.totalCount + ' 个发布。');
+        
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setToken(pwd);
+          showDashboard();
         } else {
-          showResult('error', data.message || 'Failed to send releases');
+          document.getElementById('loginError').style.display = 'block';
         }
-      } catch (err) {
-        showResult('error', 'Network error: ' + err.message);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Send All Releases / 发送所有发布';
+      } catch (e) {
+        document.getElementById('loginError').textContent = '网络错误';
+        document.getElementById('loginError').style.display = 'block';
       }
     }
-
-    function showResult(type, message) {
-      const result = document.getElementById('result');
-      result.className = 'result ' + type;
-      result.textContent = message;
-      result.style.display = 'block';
+    
+    function logout() {
+      clearToken();
+      document.getElementById('loginPage').style.display = 'flex';
+      document.getElementById('dashboard').style.display = 'none';
+      document.getElementById('password').value = '';
+    }
+    
+    function showDashboard() {
+      document.getElementById('loginPage').style.display = 'none';
+      document.getElementById('dashboard').style.display = 'block';
+      document.getElementById('loginError').style.display = 'none';
+      refreshStatus();
+    }
+    
+    async function refreshStatus() {
+      const token = getToken();
+      
+      // Fetch changelog status
+      try {
+        const res = await fetch('/api/status', {
+          headers: { 'X-Admin-Token': token }
+        });
+        const data = await res.json();
+        
+        if (data.changelog) {
+          const el = document.getElementById('changelogStatus');
+          const val = document.getElementById('changelogValue');
+          if (data.changelog.count > 0) {
+            el.className = 'status-item online';
+            val.className = 'status-value success';
+            val.textContent = data.changelog.count + ' 条记录';
+          } else {
+            el.className = 'status-item pending';
+            val.className = 'status-value warning';
+            val.textContent = '暂无数据';
+          }
+          
+          document.getElementById('releaseCount').textContent = data.changelog.count || 0;
+          document.getElementById('latestVersion').textContent = data.changelog.latestVersion || '-';
+          document.getElementById('dataUpdateTime').textContent = formatTime(data.changelog.lastUpdated);
+          document.getElementById('lastUpdate').textContent = formatTime(data.changelog.lastUpdated);
+        }
+      } catch (e) {
+        console.error('Failed to fetch status:', e);
+      }
+    }
+    
+    async function sendAllReleases() {
+      const token = getToken();
+      const btn = document.getElementById('sendAllBtn');
+      const result = document.getElementById('actionResult');
+      
+      btn.disabled = true;
+      btn.textContent = '发送中...';
+      
+      try {
+        const res = await fetch('/sendAll?secret=' + encodeURIComponent(token), { method: 'POST' });
+        const data = await res.json();
+        
+        if (res.ok && data.success) {
+          showResult('success', '成功发送 ' + data.sentCount + '/' + data.totalCount + ' 个 Release');
+        } else {
+          showResult('error', data.message || '发送失败');
+        }
+      } catch (e) {
+        showResult('error', '网络错误: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '发送所有 Release';
+      }
+    }
+    
+    async function refreshChangelog() {
+      const token = getToken();
+      
+      try {
+        const res = await fetch('/changelog/refresh?secret=' + encodeURIComponent(token));
+        const data = await res.json();
+        
+        if (res.ok && data.success) {
+          showResult('success', 'Changelog 已刷新，共 ' + data.count + ' 条记录');
+          refreshStatus();
+        } else {
+          showResult('error', data.message || '刷新失败');
+        }
+      } catch (e) {
+        showResult('error', '网络错误');
+      }
+    }
+    
+    function showResult(type, msg) {
+      const el = document.getElementById('actionResult');
+      el.className = 'result-msg ' + type;
+      el.textContent = msg;
+      el.style.display = 'block';
+      setTimeout(() => { el.style.display = 'none'; }, 5000);
+    }
+    
+    function formatTime(iso) {
+      if (!iso) return '-';
+      const d = new Date(iso);
+      return d.toLocaleString('zh-CN');
+    }
+    
+    // Check if already logged in
+    if (getToken()) {
+      showDashboard();
     }
   </script>
 </body>
 </html>`;
+}
+
+/**
+ * 处理登录请求
+ */
+export async function handleLogin(request: Request, env: Env): Promise<Response> {
+  try {
+    const body = await request.json();
+    const { password } = body as { password: string };
+    
+    if (verifyPassword(password, env)) {
+      return new Response(JSON.stringify({ success: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    
+    return new Response(JSON.stringify({ success: false, message: '密码错误' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch {
+    return new Response(JSON.stringify({ success: false, message: '请求格式错误' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+}
+
+/**
+ * 处理状态查询请求
+ */
+export async function handleStatusRequest(request: Request, env: Env): Promise<Response> {
+  const token = request.headers.get('X-Admin-Token');
+  
+  if (!token || !verifyPassword(token, env)) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  
+  let changelogData = await getChangelogFromKV(env.CHANGELOG_KV);
+  
+  const status = {
+    webhook: {
+      status: 'online',
+      message: 'Webhook 端点正常',
+    },
+    changelog: {
+      count: changelogData?.entries?.length || 0,
+      latestVersion: changelogData?.entries?.[0]?.tag_name || null,
+      lastUpdated: changelogData?.lastUpdated || null,
+    },
+    bot: {
+      status: 'online',
+    },
+  };
+  
+  return new Response(JSON.stringify(status), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
 }

@@ -12,6 +12,8 @@ import {
   handleTelegramWebhook,
   generateAdminHtml,
   handleGitHubWebhook,
+  handleLogin,
+  handleStatusRequest,
 } from './handlers';
 
 export default {
@@ -26,6 +28,14 @@ export default {
 
     if (path === '/github/webhook') {
       return handleGitHubWebhook(request, env);
+    }
+
+    if (path === '/api/login') {
+      return handleLogin(request, env);
+    }
+
+    if (path === '/api/status') {
+      return handleStatusRequest(request, env);
     }
 
     if (path === '/changelog') {

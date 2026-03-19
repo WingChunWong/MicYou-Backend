@@ -17,6 +17,7 @@ id = "30db7c2bf6994d00888c5e4a17007c80"  # 部署时需要替换为实际的 KV 
 # wrangler secret put TG_BOT_TOKEN
 # wrangler secret put TG_CHAT_ID
 # wrangler secret put GITHUB_WEBHOOK_SECRET
+# wrangler secret put ADMIN_PASSWORD  (管理后台登录密码)
 
 [vars]
 # 非敏感配置可以放在这里
