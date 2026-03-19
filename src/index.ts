@@ -8,6 +8,7 @@ import {
   handleChangelogRequest,
   handleChangelogMdRequest,
   handleChangelogRefresh,
+  handleChangelogOptions,
   handleSendAll,
   handleTelegramWebhook,
   generateAdminHtml,
@@ -39,14 +40,23 @@ export default {
     }
 
     if (path === '/changelog') {
+      if (request.method === 'OPTIONS') {
+        return handleChangelogOptions();
+      }
       return handleChangelogRequest(env);
     }
 
     if (path === '/changelog.md') {
+      if (request.method === 'OPTIONS') {
+        return handleChangelogOptions();
+      }
       return handleChangelogMdRequest(env);
     }
 
     if (path === '/changelog/refresh') {
+      if (request.method === 'OPTIONS') {
+        return handleChangelogOptions();
+      }
       const secret = url.searchParams.get('secret') || undefined;
       return handleChangelogRefresh(env, secret);
     }

@@ -7,6 +7,13 @@ import { getRepoFullName } from '../config';
 import { getChangelogFromKV, initializeChangelog } from '../changelog/kv';
 import { generateChangelogMarkdown } from '../changelog/generator';
 
+/** CORS 响应头 */
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
+
 /**
  * 处理 /changelog 请求 - 获取 changelog（JSON 格式）
  */
@@ -23,7 +30,17 @@ export async function handleChangelogRequest(env: Env): Promise<Response> {
     data
   }), {
     status: 200,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+  });
+}
+
+/**
+ * 处理 OPTIONS 预检请求
+ */
+export function handleChangelogOptions(): Response {
+  return new Response(null, {
+    status: 204,
+    headers: CORS_HEADERS,
   });
 }
 
@@ -44,6 +61,7 @@ export async function handleChangelogMdRequest(env: Env): Promise<Response> {
     headers: {
       'Content-Type': 'text/markdown; charset=utf-8',
       'Content-Disposition': 'attachment; filename="CHANGELOG.md"',
+      ...CORS_HEADERS,
     },
   });
 }
@@ -58,7 +76,7 @@ export async function handleChangelogRefresh(env: Env, secret?: string): Promise
       message: 'Admin secret required. Usage: /changelog/refresh?secret=YOUR_SECRET'
     }), {
       status: 401,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
     });
   }
 
@@ -71,7 +89,7 @@ export async function handleChangelogRefresh(env: Env, secret?: string): Promise
       lastUpdated: data.lastUpdated
     }), {
       status: 200,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
     });
   } catch (error) {
     return new Response(JSON.stringify({
@@ -79,7 +97,7 @@ export async function handleChangelogRefresh(env: Env, secret?: string): Promise
       message: error instanceof Error ? error.message : 'Unknown error'
     }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
     });
   }
 }
