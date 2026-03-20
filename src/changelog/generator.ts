@@ -29,7 +29,6 @@ export function generateChangelogMarkdown(data: ChangelogData, _repoFullName: st
     const releaseUrl = entry.html_url;
 
     lines.push(`## [${entry.tag_name}](${releaseUrl})`);
-    lines.push(``);
     if (entry.prerelease) {
       lines.push(` *(Pre-release)*`);
     }
@@ -43,9 +42,6 @@ export function generateChangelogMarkdown(data: ChangelogData, _repoFullName: st
     } else {
       lines.push(`*No release notes provided.*`);
     }
-
-    lines.push(``);
-    lines.push(`---`);
     lines.push(``);
   }
 
