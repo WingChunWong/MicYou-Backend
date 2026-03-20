@@ -46,8 +46,20 @@ export function handleChangelogOptions(): Response {
 
 /**
  * 处理 /changelog.md 请求 - 获取 CHANGELOG.md 格式
+ * 支持通过 secret 参数访问（用于 GitHub Actions 等自动化场景）
  */
-export async function handleChangelogMdRequest(env: Env): Promise<Response> {
+export async function handleChangelogMdRequest(env: Env, secret?: string): Promise<Response> {
+  // 如果提供了 secret，验证是否正确
+  if (secret && secret !== env.CHANGELOG_SECRET) {
+    return new Response(JSON.stringify({
+      error: 'Unauthorized',
+      message: 'Invalid secret'
+    }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+    });
+  }
+
   let data = await getChangelogFromKV(env.CHANGELOG_KV);
 
   if (!data) {

@@ -71,6 +71,7 @@ npm run tail
 | `TG_THREAD_ID` | ❌ | 话题 ID |
 | `ADMIN_USER_IDS` | ❌ | 管理员用户 ID（逗号分隔） |
 | `ADMIN_PASSWORD` | ❌ | 管理后台登录密码 |
+| `CHANGELOG_SECRET` | ❌ | Changelog API 访问密钥（用于 GitHub Actions 等） |
 
 ## API 路由
 

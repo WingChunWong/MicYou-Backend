@@ -50,7 +50,8 @@ export default {
       if (request.method === 'OPTIONS') {
         return handleChangelogOptions();
       }
-      return handleChangelogMdRequest(env);
+      const secret = url.searchParams.get('secret') || undefined;
+      return handleChangelogMdRequest(env, secret);
     }
 
     if (path === '/changelog/refresh') {
