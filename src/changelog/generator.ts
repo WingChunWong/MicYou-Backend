@@ -20,7 +20,7 @@ function demoteHeadings(markdown: string): string {
  */
 export function generateChangelogMarkdown(data: ChangelogData, _repoFullName: string): string {
   const lines: string[] = [
-    `## Changelog`,
+    `# Changelog`,
     ``,
   ];
 
